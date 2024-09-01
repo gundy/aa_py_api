@@ -6,6 +6,8 @@ import serial
 import re
 import logging
 import time
+import argparse
+import sys
 from enum import Enum, IntEnum
 from dataclasses import dataclass
 
@@ -291,18 +293,12 @@ class Store:
             if (self.db["aircons"] is None):
                 self.db["aircons"] = {}
 
-            found_ac = False
-            ac_id = None
-            ac = None
-            num_aircons = len(self.db["aircons"])
-            for key in self.db["aircons"]:
-                if (self.db["aircons"][key]["info"]["uid"] == cb_id):
-                    found_ac = True
-                    ac = self.db["aircons"][key]
+            ac = self.find_ac_by_uid(cb_id)
 
-            if not found_ac:
+            if not ac:
                 logger.warning("Received notification from unknown control box; please follow instructions to configure control box with ID: "+cb_id)
-                return
+                logger.warning("Cannot proceed safely, exiting...")
+                sys.exit()
 
             if (upd.register_id == Registers.CONTROL_BOX_EXISTS_NOTIFICATION.value):
                 logger.debug("Control box " + upd.unit_id + " exists notification received")
@@ -391,6 +387,7 @@ class Store:
             if len(to_process) != 0:
                 msg = "setCAN"
                 for register in to_process:
+
                     if (register.register == Registers.SYSTEM_STATUS):
                         # `05` - CB JZ14 - System Status
                         #| Byte # | Description |
@@ -515,6 +512,13 @@ class Store:
         finally:
             lock.release()
 
+
+    def find_ac_by_uid(self, cb_id):
+        ac = None
+        for key in self.db["aircons"]:
+            if (self.db["aircons"][key]["info"]["uid"] == cb_id):
+                ac = self.db["aircons"][key]
+        return ac
 
     def find_zone(self, ac, zone_num):
         found_zone = False
@@ -705,15 +709,20 @@ def graceful_shutdown():
 
 atexit.register(graceful_shutdown)
 
-def main_loop():
-  can = CanLayer('/dev/cu.usbserial-AB0KOAZB')
+def main_loop(serial_device):
+  can = CanLayer(serial_device)
   while running:
     can.event_loop_tick()
     time.sleep(0.01)
-   
+
+parser = argparse.ArgumentParser(description='Monitor communications between AA Tablet and Control Box')
+parser.add_argument('--device', type=str, nargs=1, required=True,
+                    help='serial device to use when using serial interface (eg. /dev/cu.usbserial)')
+args = parser.parse_args()
+
 if __name__ == '__main__':
     flask_thread = threading.Thread(target=lambda: app.run(host='0.0.0.0', port=2025, debug=True, use_reloader=False)).start()
-    main_loop()
+    main_loop(args.device[0])
     flask_thread.join()
     print("API has been shut down gracefully.")
 

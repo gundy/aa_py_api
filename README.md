@@ -31,7 +31,13 @@ If this is not possible (eg. your existing tablet is dead, ...), then some more 
 ### Running the process
 
 ```sh
-python3 aa_api.py --log=DEBUG
+python3 aa_api.py --device <your_usbserial_rs485_device>
+```
+
+For example, on my computer I use:
+
+```sh
+python3 aa_api.py --device /dev/cu.usbserial-AB0KOAZB
 ```
 
 ## Theory of operation
