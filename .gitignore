@@ -1,0 +1,7 @@
+.nyc_output/
+coverage/
+.idea
+.venv
+**/*.iml
+**/aircons.db.orig.json
+
