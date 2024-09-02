@@ -298,10 +298,11 @@ class Store:
             if not ac:
                 logger.warning("Received notification from unknown control box; please follow instructions to configure control box with ID: "+cb_id)
                 logger.warning("Cannot proceed safely, exiting...")
-                sys.exit()
-
+                sys.exit()          
             if (upd.register_id == Registers.CONTROL_BOX_EXISTS_NOTIFICATION.value):
-                logger.debug("Control box " + upd.unit_id + " exists notification received")
+                logger.debug("Control box " + cb_id + " exists notification received")
+            elif (upd.register_id == Registers.SENSOR_PAIRING.value):
+                logger.debug("Control box " + cb_id + " detected sensor pairing button press: "+ 'SensorUid: {:02x}{:02x}{:02x}, Sensor Maj Rev: {:02x}'.format(upd.data[0],upd.data[1],upd.data[2], upd.data[4]))
             elif (upd.register_id == Registers.CONTROL_BOX_2FIRMWARE_VERSION.value):
                 logger.debug("Control box firmware version notification received - firmware = v" + str(upd.data[0]) + "." + str(upd.data[1]) + "(rf v=" + str(upd.data[3]) + ")")
                 ac["info"]["cbFWRevMajor"] = upd.data[0]
@@ -384,7 +385,7 @@ class Store:
                 to_process.add(self.dirty_registers.pop())
                 count = count + 1
 
-            if len(to_process) != 0:
+            if len(to_process) >= 0:
                 msg = "setCAN"
                 for register in to_process:
 
@@ -581,7 +582,8 @@ class CanLayer:
         global store
         message = store.get_dirty_register_msg()
         if (message):
-            logger.info("Sending update message to CB: "+message)
+            if (message != "setCAN"):
+                logger.info("Sending update message to CB: "+message)
             self.outbound_message_queue.append(message)
 
     # Process inbound message from the CB
@@ -605,7 +607,6 @@ class CanLayer:
                     self.__enqueue_outbound_register_updates()             
                 if (len(self.outbound_message_queue) != 0):
                     next_msg = self.outbound_message_queue.pop(0)
-                    logger.debug("Writing message: "+next_msg)
                     self.ser.write(self.parser.encode_packet(next_msg))
         elif (msg == "CAN2 in use"):
             logger.debug("Received CAN2 protocol confirmation from CB.  Sending flush register request. ");
@@ -621,10 +622,12 @@ class CanLayer:
             store.dirty_all_registers()
             self.can_connection_state = "CONNECTED"
         elif (first_word == "getCAN"):
+
             # convert getCAN message into set of register updates, and forward to store
             if (len(msg) > 10):
-                logger.debug("getCAN message received: "+msg)
+                logger.debug("getCAN message meceived: "+msg)
 
+    
             msg_regex = re.compile('^getCAN ([0-9]+) ([0-9A-Fa-f ]+)$')
             regex_match_result = msg_regex.match(msg)
             if (regex_match_result):
@@ -638,9 +641,7 @@ class CanLayer:
                 # process each register separately; create a RegisterUpdate object and
                 # dispatch it to the store.
                 for register_update in register_updates:
-                    logger.info("Checking update")
                     if (len(register_update) == 25):
-                        logger.info("Processing update")
                         reg = RegisterUpdateFromCB(
                             int(register_update[0:2], 16),
                             int(register_update[2:4], 16),
@@ -659,14 +660,13 @@ class CanLayer:
                         store.process_register_update_from_cb(reg)
                     elif (register_update != ''):
                         logger.warning("Received getCAN register update that was not of expected length: "+register_update+" \nfull packet: "+msg);
-            else:
-                logger.warning("getCAN message didn't match expected pattern")
-            # save updates to store on disk
-            store.save()
+        
+                # save updates to store on disk
+                store.save()
 
             # make sure that the next message sent from the (*cough*) "tablet" (*cough*) to CB is an ACK for the setCAN
             # by injecting ackCAN response at the head of the outbound message queue.
-            self.outbound_message_queue.append("ackCAN 1")
+            self.outbound_message_queue.insert(0,"ackCAN 1") # ack messages go to the front of the queue
 
         else:
             logger.error("Unknown/unhandled message received: "+msg)
